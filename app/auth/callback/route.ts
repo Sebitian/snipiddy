@@ -20,11 +20,7 @@ export async function GET(request: Request) {
   }
 
   // URL to redirect to after sign up process completes
-<<<<<<< HEAD
   // return NextResponse.redirect(`${origin}/protected`);
 
   return NextResponse.redirect(`${origin}/dashboard`);
-=======
-  return NextResponse.redirect(`${origin}/protected`);
->>>>>>> origin/main
 }
