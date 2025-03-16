@@ -16,11 +16,13 @@ export default function Dashboard() {
     getUserProfile();
   }, []);
 
-  if (!user) return <div>Loading...</div>;
+
+  if (!user) return <div>You need to sign in...</div>;
 
   return (
     <div className="max-w-7xl mx-auto p-6"> {/* Made wider to accommodate table */}
         <h1 className="text-2xl font-bold mb-2">Welcome, {user.email}!</h1>
+        
         <DataDisplay /> {/* Removed userId prop since we're showing all notes */}
     </div>
   );
