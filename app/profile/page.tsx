@@ -5,7 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 
-import { Textarea } from '@/components/textarea'
+import { Textarea } from '@/components/ui/textarea'
 
 export default function ProfilePage() {
     const [user, setUser] = useState<any>(null);
