@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# huggingface related files
+/utils/huggingface.ts
+/app/api/analyze-menu/
