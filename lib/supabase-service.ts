@@ -69,16 +69,12 @@ class SupabaseService {
         return { success: false, error: 'No menu items to store' };
       }
 
-      // First store the menu scan
+      // First store the menu scan - only include fields that exist in the table
       const { data: menuScan, error: menuError } = await supabase
         .from('menu_scans')
         .insert([{
           raw_text: data.raw_text,
-          restaurant_name: data.restaurant_name || null,
-          menu_type: data.menu_type || null,
-          cuisine_type: data.cuisine_type || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          created_at: new Date().toISOString()
         }])
         .select('id')
         .single();
@@ -98,10 +94,7 @@ class SupabaseService {
         ingredients: item.ingredients,
         allergens: item.allergens,
         price: item.price,
-        category: item.category || null,
-        dietary_tags: item.dietary_tags || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        created_at: new Date().toISOString()
       }));
 
       const { error: itemsError } = await supabase

@@ -238,9 +238,11 @@ export const classifyImage = async (file: File) => {
     // Store in Supabase
     if (structuredData.menu_items.length > 0) {
       try {
-        await supabaseService.storeMenuData(structuredData)
+        // Create a copy without the cuisine_type field
+        const { cuisine_type, ...dataToStore } = structuredData;
+        await supabaseService.storeMenuData(dataToStore);
       } catch (dbError) {
-        console.error("Database storage error:", dbError)
+        console.error("Database storage error:", dbError);
         // Continue without failing the whole process
       }
     }
