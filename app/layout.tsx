@@ -31,8 +31,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={geistSans.className} suppressHydrationWarning>
-      <body className="bg-background text-foreground">
-        <MantineProviders>
+      <body className={`${geistSans.className} bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 text-white min-h-screen`}>
+        {/* <MantineProviders> */}
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -73,7 +73,7 @@ export default function RootLayout({
               </div>
             </main>
           </ThemeProvider>
-        </MantineProviders>
+        {/* </MantineProviders> */}
       </body>
     </html>
   );
