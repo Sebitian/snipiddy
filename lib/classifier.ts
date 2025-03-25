@@ -170,7 +170,7 @@ export const classifyImage = async (file: File) => {
           content: menuPrompt
         }
       ],
-      max_tokens: 2000,
+      max_tokens: 3000,
       temperature: 0.2, // Lower temperature for more predictable output
     })
 
