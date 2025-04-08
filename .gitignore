@@ -43,3 +43,26 @@ next-env.d.ts
 # huggingface related files
 /utils/huggingface.ts
 /app/api/analyze-menu/
+
+# Supabase sources directory
+/supabase/sources/
+/supabase/sources/**
+
+# Additional sensitive data
+*.key
+*.pem
+*.cert
+*.secret
+*secret*
+*password*
+*credential*
+*token*
+
+# Log files
+/logs
+*.log
+
+# Backups
+*.bak
+*.backup
+**/backup/*
