@@ -1,4 +1,4 @@
-import { searchMenuItems, searchByIngredients } from "@/lib/classifier";
+import { searchMenuItems, searchByIngredients } from "@/app/api/classify/classifier";
 import { NextResponse, NextRequest } from "next/server";
 
 // Set the runtime to edge for best performance

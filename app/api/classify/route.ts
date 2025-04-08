@@ -1,5 +1,6 @@
-import { classifyImage } from "@/lib/classifier";
+import { classifyImage } from "@/app/api/classify/classifier";
 import { NextResponse, NextRequest } from "next/server";
+import { supabaseService } from '@/lib/supabase-service';
 
 // Set the runtime to edge for best performance
 export const runtime = "edge";
@@ -34,6 +35,21 @@ export async function POST(request: NextRequest) {
     if (!response || typeof response !== 'object') {
       throw new Error("Invalid response format from classifier");
     }
+
+    // If we have menu items, associate allergens (added this section)
+    // if (response.menu_items?.length > 0) {
+    //   try {
+    //     // Get the most recent scan ID (you might need to adjust this)
+    //     const { data: recentScan } = await supabaseService.getMostRecentScan();
+    //     if (recentScan?.id) {
+    //       await supabaseService.associateIngredientsWithAllergensForScan(recentScan.id);
+    //       console.log("Allergens associated successfully");
+    //     }
+    //   } catch (associationError) {
+    //     console.error("Allergen association failed:", associationError);
+    //     // Don't fail the whole request, just log the error
+    //   }
+    // }
     
     // Return the full response object
     return NextResponse.json(response);
