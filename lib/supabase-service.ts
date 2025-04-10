@@ -77,28 +77,28 @@ interface AllergenReference {
 class SupabaseService {
   // Store a complete menu scan with items
   async storeMenuData(
-    data: MenuData
+    data: MenuData,
+    userId?: string
   ): Promise<{ success: boolean; menuScanId?: string; error?: string }> {
     try {
       console.log("Storing menu data with items: ", data.menu_items.length);
-      console.log("Sample item with allergens: ", {
-        name: data.menu_items[0]?.dish_name,
-        allergens: data.menu_items[0]?.allergens,
-      });
 
       if (!data.menu_items || data.menu_items.length === 0) {
         return { success: false, error: "No menu items to store" };
       }
 
-      // First store the menu scan - only include fields that exist in the table
+      // Create simplified menu scan data - only use what's in your schema
+      const menuScanData = {
+        raw_text: data.raw_text || "",
+        created_at: new Date().toISOString()
+      };
+
+      console.log("Inserting menu scan with data:", menuScanData);
+
+      // Store the menu scan
       const { data: menuScan, error: menuError } = await supabase
         .from("menu_scans")
-        .insert([
-          {
-            raw_text: data.raw_text,
-            created_at: new Date().toISOString(),
-          },
-        ])
+        .insert([menuScanData])
         .select("id")
         .single();
 
@@ -108,8 +108,9 @@ class SupabaseService {
       }
 
       const menuScanId = menuScan.id;
+      console.log("Menu scan created with ID:", menuScanId);
 
-      // Then store all menu items
+      // Store menu items
       const menuItemsToInsert = data.menu_items.map((item) => ({
         menu_scan_id: menuScanId,
         dish_name: item.dish_name,
@@ -134,8 +135,7 @@ class SupabaseService {
       console.error("Error in storeMenuData:", error);
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -700,6 +700,98 @@ class SupabaseService {
     } catch (error) {
       return {
         error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async getUserMenuScans(
+    userId: string,
+    limit = 5
+  ): Promise<{ scans?: MenuScan[]; menuItems?: Record<string, MenuItem[]>; error?: string }> {
+    try {
+      // Get all scans regardless of user
+      const { data: scans, error: scansError } = await supabase
+        .from("menu_scans")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (scansError) {
+        console.error("Error fetching menu scans:", scansError);
+        return { error: `Error fetching menu scans: ${scansError.message}` };
+      }
+
+      // If no scans, return empty results
+      if (!scans || scans.length === 0) {
+        return { scans: [] };
+      }
+
+      // Get menu items for each scan
+      const scanIds = scans.map(scan => scan.id);
+      const { data: items, error: itemsError } = await supabase
+        .from("menu_items")
+        .select("*")
+        .in("menu_scan_id", scanIds);
+
+      if (itemsError) {
+        console.error("Error fetching menu items:", itemsError);
+        return { error: `Error fetching menu items: ${itemsError.message}` };
+      }
+
+      // Group items by their scan ID
+      const menuItems: Record<string, MenuItem[]> = {};
+      items?.forEach(item => {
+        if (!menuItems[item.menu_scan_id]) {
+          menuItems[item.menu_scan_id] = [];
+        }
+        menuItems[item.menu_scan_id].push(item as MenuItem);
+      });
+
+      return {
+        scans: scans as MenuScan[],
+        menuItems
+      };
+    } catch (error) {
+      console.error("Error in getUserMenuScans:", error);
+      return {
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  // Get user profile with allergen information
+  async getUserProfile(
+    userId: string
+  ): Promise<{ profile?: any; error?: string }> {
+    try {
+      // First check if userId is valid
+      if (!userId) {
+        return { profile: null, error: "User ID is required" };
+      }
+
+      // Check if the user has a profile
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle(); // Use maybeSingle instead of single to handle no results case
+
+      if (error) {
+        console.error("Error fetching user profile:", error);
+        return { error: `Error fetching user profile: ${error.message}` };
+      }
+
+      // If no profile found, return null instead of throwing an error
+      if (!data) {
+        return { profile: null };
+      }
+
+      return { profile: data };
+    } catch (error) {
+      console.error("Error in getUserProfile:", error);
+      return {
+        profile: null,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
