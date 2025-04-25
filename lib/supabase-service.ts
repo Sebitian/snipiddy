@@ -33,6 +33,8 @@ export interface MenuScan {
   restaurant_name?: string | null;
   menu_type?: string | null;
   cuisine_type?: string | null;
+  user_id?: string;
+  profile_id?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -43,6 +45,8 @@ export interface MenuData {
   restaurant_name?: string | null;
   menu_type?: string | null;
   cuisine_type?: string | null;
+  user_id?: string | null;
+  profile_id?: string | null;
   scan_date?: string;
 }
 
@@ -90,6 +94,8 @@ class SupabaseService {
       // Create simplified menu scan data - only use what's in your schema
       const menuScanData = {
         raw_text: data.raw_text || "",
+        user_id: data.user_id || null,
+        profile_id: data.profile_id || null,
         created_at: new Date().toISOString()
       };
 

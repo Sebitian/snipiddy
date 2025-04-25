@@ -1,8 +1,6 @@
-import React from 'react'
-import Dashboard from './Dashboard'
+import { redirect } from 'next/navigation'
 
 export default function DashboardPage () {
-  return (
-    <Dashboard />
-  )
+  redirect('/scan')
+  return null
 }

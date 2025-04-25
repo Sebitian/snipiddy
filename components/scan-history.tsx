@@ -93,13 +93,13 @@ export function ScanHistory({ userId, limit = 5 }: ScanHistoryProps) {
         />
       ))}
       
-      {scans.length > 0 && (
+      {/* {scans.length > 0 && (
         <Button variant="outline" size="sm" className="w-full" asChild>
           <Link href="/dashboard/history">
             View All Scan History
           </Link>
         </Button>
-      )}
+      )} */}
     </div>
   );
 }
