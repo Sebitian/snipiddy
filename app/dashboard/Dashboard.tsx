@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Camera, Upload, Search, Grid3X3, List, Loader2, Info, AlertCircle } from "lucide-react"
 import Image from "next/image"
+import supabaseService from "@/lib/supabase-service"
 
 // Define interfaces for menu data
 interface MenuItem {
@@ -63,6 +64,52 @@ export default function Dashboard() {
   const [maxPrice, setMaxPrice] = useState<number | null>(null)
 
   const [allergenCounts, setAllergenCounts] = useState<AllergenCount[]>([]);
+
+  const [searchResults, setSearchResults] = useState<MenuItem[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchDebug, setSearchDebug] = useState<any>(null);
+  
+  // Add a debounce function to avoid too many API calls
+  const debounce = (func: Function, delay: number) => {
+    let timeoutId: NodeJS.Timeout;
+    return (...args: any[]) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => func(...args), delay);
+    };
+  };
+  
+  // Handle search with raw SQL execution
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
+    
+    if (!query.trim()) {
+      // Reset to showing all menu items
+      setSearchResults([]);
+      return;
+    }
+    
+    setSearchLoading(true);
+    try {
+      const { items, error, debug } = await supabaseService.searchMenuItemsRawSQL(query);
+      
+      if (error) {
+        console.error("Search error:", error);
+        setError(`Error searching: ${error}`);
+      } else {
+        setSearchResults(items || []);
+        setSearchDebug(debug);
+        console.log("Search debug:", debug);
+      }
+    } catch (err) {
+      console.error("Error during search:", err);
+      setError(`Search error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+  
+  // Create a debounced version of the search function
+  const debouncedSearch = debounce(handleSearch, 500);
 
   // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -264,13 +311,9 @@ export default function Dashboard() {
   }
 
   // Filter menu items based on search criteria and filters
-  const filteredMenuItems = menuItems.filter(item => {
-    // Text search filter
-    const matchesSearch = searchQuery ? (
-      item.dish_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (item.ingredients && item.ingredients.some(ing => ing.toLowerCase().includes(searchQuery.toLowerCase())))
-    ) : true;
+  const filteredMenuItems = (searchResults.length > 0 && searchQuery ? searchResults : menuItems).filter(item => {
+    // Since search is now handled by the SQL query, we no longer need the search filter here
+    // Only apply the other filters
     
     // Allergen filter - exclude items with selected allergens
     const passesAllergenFilter = selectedAllergens.length > 0 ? (
@@ -279,28 +322,12 @@ export default function Dashboard() {
       )
     ) : true;
     
-    // Dietary preference filter
-    const passesDietaryFilter = selectedDietaryTags.length > 0 ? (
-      item.dietary_tags && item.dietary_tags.some(tag => 
-        selectedDietaryTags.includes(tag.toLowerCase())
-      )
-    ) : true;
-    
-    // Category filter
-    const passesCategoryFilter = selectedCategory ? (
-      item.category && item.category.toLowerCase() === selectedCategory.toLowerCase()
-    ) : true;
-    
     // Price filter
     const passesPriceFilter = maxPrice ? (
       item.price !== null && item.price <= maxPrice
     ) : true;
     
-    return matchesSearch && 
-           passesAllergenFilter && 
-           passesDietaryFilter && 
-           passesCategoryFilter && 
-           passesPriceFilter;
+    return passesAllergenFilter && passesPriceFilter;
   });
 
   // Extract unique categories for filter options
@@ -620,8 +647,14 @@ export default function Dashboard() {
                     placeholder="Search menu items..."
                     className="w-full pl-8 md:w-[300px] bg-white/10 border-purple-400/30 text-white placeholder-purple-300"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      debouncedSearch(e.target.value);
+                    }}
                   />
+                  {searchLoading && (
+                    <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-purple-300" />
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -820,6 +853,23 @@ export default function Dashboard() {
                   <CardContent className={cardContentStyles}>
                     <div className="max-h-[400px] overflow-y-auto p-4 bg-black/50 rounded-md whitespace-pre-wrap text-sm text-gray-100">
                       {response}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Debug section - remove in production */}
+              {process.env.NODE_ENV !== 'production' && searchDebug && (
+                <Card className="mt-4 bg-gray-900/80 border-gray-700">
+                  <CardHeader className="py-2">
+                    <CardTitle className="text-sm">Search Debug Info</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xs">
+                      <h4 className="font-medium mb-1">SQL Query:</h4>
+                      <pre className="bg-black/50 p-2 rounded overflow-x-auto">
+                        {searchDebug.query || 'No query available'}
+                      </pre>
                     </div>
                   </CardContent>
                 </Card>

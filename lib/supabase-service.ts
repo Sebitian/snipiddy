@@ -118,10 +118,10 @@ class SupabaseService {
       // If useAutoNaming is true, don't set a name - trigger will handle it
       // Otherwise use the standard date-based naming
       if (!useAutoNaming) {
-        const formattedDate = scanDate.toLocaleDateString('en-US', { 
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric'
+      const formattedDate = scanDate.toLocaleDateString('en-US', { 
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
         });
         menuScanData.name = formattedDate;
       }
@@ -182,46 +182,10 @@ class SupabaseService {
     }
   }
 
-  // Fetch a specific menu scan with its items
-  async getMenuScan(
-    scanId: string
-  ): Promise<{ menuScan?: MenuScan; menuItems?: MenuItem[]; error?: string }> {
-    try {
-      // Get the menu scan
-      const { data: scanData, error: scanError } = await supabase
-        .from("menu_scans")
-        .select("*")
-        .eq("id", scanId)
-        .single();
+  
 
-      if (scanError) {
-        return { error: `Error fetching menu scan: ${scanError.message}` };
-      }
-
-      // Get the menu items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("menu_items")
-        .select("*")
-        .eq("menu_scan_id", scanId);
-
-      if (itemsError) {
-        return { error: `Error fetching menu items: ${itemsError.message}` };
-      }
-
-      return {
-        menuScan: scanData as MenuScan,
-        menuItems: itemsData as MenuItem[],
-      };
-    } catch (error) {
-      console.error("Error in getMenuScan:", error);
-      return {
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
-      };
-    }
-  }
-
-  // Get all scans for a specific restaurant using raw SQL
+  // GET all scans for a specific restaurant using raw SQL
+  // READ
   async getRestaurantMenus(
     restaurantName: string
   ): Promise<{ scans?: MenuScan[]; error?: string; debug?: any }> {
@@ -252,7 +216,7 @@ class SupabaseService {
 
       if (error) {
         console.error("Error executing SQL for restaurant menus:", error);
-        return { 
+      return {
           error: `Error fetching restaurant menus: ${error.message}`,
           debug: { query, error }
         };
@@ -586,7 +550,7 @@ class SupabaseService {
 
       if (error) {
         console.error("Error executing SQL for most recent scan:", error);
-        return { 
+        return {
           error: error.message,
           debug: { query, error }
         };
@@ -595,7 +559,7 @@ class SupabaseService {
       // The execute_sql function returns an array, but we want a single object
       // Check if we have results and take the first item
       if (!data || data.length === 0) {
-        return { 
+      return {
           data: undefined,
           debug: { query, result: [] }
         };
@@ -637,7 +601,7 @@ class SupabaseService {
 
       if (scansError) {
         console.error("Error executing SQL for menu scans:", scansError);
-        return { 
+      return {
           error: `Error fetching menu scans: ${scansError.message}`,
           debug: { query: scansQuery, error: scansError }
         };
@@ -645,7 +609,7 @@ class SupabaseService {
 
       // If no scans, return empty results
       if (!scans || scans.length === 0) {
-        return { 
+      return {
           scans: [],
           debug: { query: scansQuery, result: scans }
         };
@@ -747,14 +711,14 @@ class SupabaseService {
 
       // If no profile found, return null instead of throwing an error
       if (!data || data.length === 0) {
-        return { 
-          profile: null,
+      return {
+        profile: null,
           debug: { query, result: data }
         };
       }
 
       // Since we're using LIMIT 1, take the first result
-      return { 
+      return {
         profile: data[0],
         debug: { query, result: data }
       };
@@ -802,6 +766,163 @@ class SupabaseService {
       console.error("Error in getUserScansWithItemCounts:", error);
       return {
         error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+
+  // Get a specific menu scan with its items using raw SQL
+  async getMenuScan(
+    scanId: string
+  ): Promise<{ menuScan?: MenuScan; menuItems?: MenuItem[]; error?: string; debug?: any }> {
+    try {
+      if (!scanId) {
+        return { error: "Scan ID is required" };
+      }
+
+      // Create a raw SQL query to get the menu scan
+      const scanQuery = `
+        SELECT *
+        FROM menu_scans
+        WHERE id = '${scanId}'
+        LIMIT 1
+      `;
+
+      console.log("Executing SQL query for menu scan:", scanQuery);
+      
+      // Execute the raw SQL query for the scan
+      const { data: scanData, error: scanError } = await supabase.rpc('execute_sql', {
+        query: scanQuery
+      });
+
+      if (scanError) {
+        console.error("Error executing SQL for menu scan:", scanError);
+        return { 
+          error: `Error fetching menu scan: ${scanError.message}`,
+          debug: { scanQuery, scanError }
+        };
+      }
+
+      if (!scanData || scanData.length === 0) {
+        return { 
+          error: "Scan not found",
+          debug: { scanQuery, scanResult: scanData }
+        };
+      }
+
+      const menuScan = scanData[0] as MenuScan;
+
+      // Create a raw SQL query to get the menu items (removed updated_at)
+      const itemsQuery = `
+        SELECT 
+          id,
+          menu_scan_id,
+          dish_name,
+          description,
+          ingredients,
+          allergens,
+          price,
+          created_at
+        FROM menu_items
+        WHERE menu_scan_id = '${scanId}'
+        ORDER BY dish_name
+      `;
+
+      console.log("Executing SQL query for menu items:", itemsQuery);
+      
+      // Execute the raw SQL query for the items
+      const { data: itemsData, error: itemsError } = await supabase.rpc('execute_sql', {
+        query: itemsQuery
+      });
+
+      if (itemsError) {
+        console.error("Error executing SQL for menu items:", itemsError);
+        // Return scan data even if items failed, with error message
+        return { 
+          menuScan, 
+          error: `Error fetching menu items: ${itemsError.message}`,
+          debug: { scanQuery, scanResult: scanData, itemsQuery, itemsError }
+        };
+      }
+
+      console.log(`Retrieved scan and ${itemsData?.length || 0} menu items`);
+      
+      return { 
+        menuScan,
+        menuItems: itemsData as MenuItem[],
+        debug: { scanQuery, scanResult: scanData, itemsQuery, itemsResult: itemsData }
+      };
+    } catch (error) {
+      console.error("Error in getMenuScan:", error);
+      return {
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+        debug: { error }
+      };
+    }
+  }
+
+  // Search menu items using raw SQL
+  async searchMenuItemsRawSQL(
+    query: string,
+    options: SearchOptions = {}
+  ): Promise<{ items?: MenuItem[]; error?: string; debug?: any }> {
+    try {
+      // Build search condition
+      let searchCondition = "";
+      if (query) {
+        searchCondition = `
+          dish_name ILIKE '%${query}%' OR 
+          description ILIKE '%${query}%' OR 
+          EXISTS (
+            SELECT 1 FROM unnest(ingredients) as ing 
+            WHERE ing ILIKE '%${query}%'
+          )
+        `;
+      } else {
+        searchCondition = "TRUE";
+      }
+
+      // Create the SQL query
+      const sqlQuery = `
+        SELECT 
+          mi.id,
+          mi.menu_scan_id,
+          mi.dish_name,
+          mi.description,
+          mi.ingredients,
+          mi.allergens,
+          mi.price,
+          mi.created_at
+        FROM menu_items mi
+        WHERE ${searchCondition}
+        ORDER BY mi.dish_name
+      `;
+
+      console.log("Executing SQL query for menu search:", sqlQuery);
+      
+      // Execute the raw SQL query
+      const { data, error } = await supabase.rpc('execute_sql', {
+        query: sqlQuery
+      });
+
+      if (error) {
+        console.error("Error executing SQL for menu search:", error);
+        return { 
+          error: `Error searching menu items: ${error.message}`,
+          debug: { query: sqlQuery, error }
+        };
+      }
+
+      console.log(`Search found ${data?.length || 0} menu items`);
+      
+      return { 
+        items: data as MenuItem[],
+        debug: { query: sqlQuery, result: data }
+      };
+    } catch (error) {
+      console.error("Error in searchMenuItemsRawSQL:", error);
+      return {
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+        debug: { error }
       };
     }
   }
