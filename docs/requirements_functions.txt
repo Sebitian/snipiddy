@@ -1,0 +1,74 @@
+SQL
+
+Advanced queries : 
+ 1. getUserScansWithItemCounts (lib/supabase-service.ts, lines 733-767)
+
+SELECT 
+  ms.id,
+  ms.name,
+  ms.created_at,
+  ms.user_id,
+  ms.raw_text,
+  COUNT(mi.id) as item_count
+FROM menu_scans ms
+LEFT JOIN menu_items mi ON mi.menu_scan_id = ms.id
+WHERE ms.user_id = '${userId}'
+GROUP BY ms.id, ms.name, ms.created_at, ms.user_id, ms.raw_text
+ORDER BY ms.created_at DESC
+
+2. searchMenuItemsRawSQL (lib/supabase-service.ts, lines 861-930):
+
+SELECT 
+  mi.id,
+  mi.menu_scan_id,
+  mi.dish_name,
+  mi.description,
+  mi.ingredients,
+  mi.allergens,
+  mi.price,
+  mi.created_at
+FROM menu_items mi
+WHERE dish_name ILIKE '%${query}%' OR 
+      description ILIKE '%${query}%' OR 
+      EXISTS (
+        SELECT 1 FROM unnest(ingredients) as ing 
+        WHERE ing ILIKE '%${query}%'
+      )
+ORDER BY mi.dish_name
+
+Stored procedure : 
+
+1. Stored procedure of Supabase instance that allows executing dynamic SQL : 
+
+DECLARE
+  result JSONB;
+BEGIN
+  EXECUTE 'SELECT jsonb_agg(t) FROM (' || query || ') t' INTO result;
+  RETURN COALESCE(result, '[]'::jsonb);
+END;
+
+Trigger :
+
+-- Create a function that enhances empty scan names with content from raw_text
+CREATE OR REPLACE FUNCTION auto_enhance_menu_scan_name() 
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Only run if name field is NULL or empty
+  IF NEW.name IS NULL OR TRIM(NEW.name) = '' THEN
+    -- Get first 25 characters from raw_text as a base for the name
+    NEW.name = CASE 
+      WHEN NEW.raw_text IS NOT NULL AND TRIM(NEW.raw_text) != '' THEN
+        SUBSTRING(TRIM(NEW.raw_text) FROM 1 FOR 25) || ' - ' || TO_CHAR(NOW(), 'MM/DD/YY')
+      ELSE
+        'Menu Scan - ' || TO_CHAR(NOW(), 'MM/DD/YY HH24:MI')
+    END;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+Create the trigger that runs before insert
+CREATE TRIGGER before_menu_scan_insert
+BEFORE INSERT ON menu_scans
+FOR EACH ROW
+EXECUTE FUNCTION auto_enhance_menu_scan_name();
