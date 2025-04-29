@@ -15,7 +15,7 @@
 | ----------- | ---------------------- |
 |  Title      |  Snipiddy              |
 | System URL  | link_to_system         |
-| Video Link  |    link_to_video       |
+| Video Link  |   https://drive.google.com/file/d/1jmQ0SeFENY4KDYTC_v4qp67ypwO59iHe/view       |
 
 ## Project Summary
 
