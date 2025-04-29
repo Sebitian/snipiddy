@@ -5,7 +5,9 @@ import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 
+
 import { Textarea } from '@/components/ui/textarea'
+import { sign } from 'crypto'
 
 export default function ProfilePage() {
     const [user, setUser] = useState<any>(null);
@@ -140,6 +142,35 @@ export default function ProfilePage() {
         alert('Profile saved successfully!');
     };
 
+    const handleDeleteProfile = async () => {
+        if (!user) return;
+
+        if (!window.confirm("You are about to delete your account. Do you wish to proceed?")) {
+            return;
+        }
+
+        const { error } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('user_id', user.id);
+
+        if (error) {
+            console.error('Error deleting profile:', error);
+            alert('Failed to delete profile');
+            return;
+        }
+
+        const { error: signOutError } = await supabase.auth.signOut();
+        if (signOutError) {
+            console.error('Error signing out:', signOutError);
+            alert('Failed to sign out');
+            return;
+        }
+
+        alert('Profile deleted successfully');
+        router.push('/sign-in');
+    }
+
     const toggleAllergen = (allergen: string) => {
         setProfile((prev: any) => ({
             ...prev,
@@ -252,6 +283,14 @@ export default function ProfilePage() {
                         disabled={saving}
                     >
                         {saving ? 'Saving...' : 'Save Profile'}
+                    </Button>
+
+                    <Button
+                        onClick={handleDeleteProfile}
+                        disabled={saving}
+                        variant="destructive"
+                    >
+                        Delete Profile
                     </Button>
                 </div>
             </div>

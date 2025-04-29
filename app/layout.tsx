@@ -7,7 +7,6 @@ import { Geist } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import Link from "next/link";
 import "./globals.css";
-import { MantineProviders } from "./mantine-providers";
 import { NavigationMenu } from "@/components/navigation-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
@@ -36,7 +35,6 @@ export default function RootLayout({
   return (
     <html lang="en" className={geistSans.className} suppressHydrationWarning>
       <body className={`${geistSans.className} bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen`}>
-        {/* <MantineProviders> */}
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -67,7 +65,7 @@ export default function RootLayout({
                       </Sheet>
                       <Link href={"/"} className="text-lg font-bold">Snipiddy</Link>
                     </div>
-                    {!hasEnvVars ? <EnvVarWarning /> : <HeaderAuth />}
+                    { <HeaderAuth /> }
                   </div>
                 </nav>
                 
@@ -76,7 +74,7 @@ export default function RootLayout({
                 </div>
 
                 <footer className="w-full flex items-center justify-center border-t border-gray-200 dark:border-gray-800 mx-auto text-center text-xs gap-8 py-16 text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800">
-                  <p>
+                  {/* <p>
                     Powered by{" "}
                     <a
                       href="https://supabase.com/?utm_source=create-next-app&utm_medium=template&utm_term=nextjs"
@@ -86,13 +84,12 @@ export default function RootLayout({
                     >
                       Supabase
                     </a>
-                  </p>
+                  </p> */}
                   <ThemeSwitcher />
                 </footer>
               </div>
             </main>
           </ThemeProvider>
-        {/* </MantineProviders> */}
       </body>
     </html>
   );

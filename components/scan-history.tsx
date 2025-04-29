@@ -10,45 +10,47 @@ import { Skeleton } from './ui/skeleton';
 
 interface ScanHistoryProps {
   userId: string;
+  userEmail?: string;  // Add email as an optional prop
   limit?: number;
 }
 
-export function ScanHistory({ userId, limit = 5 }: ScanHistoryProps) {
+export function ScanHistory({ userId, userEmail, limit = 5 }: ScanHistoryProps) {
   const [scans, setScans] = useState<MenuScan[]>([]);
   const [menuItems, setMenuItems] = useState<Record<string, MenuItem[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debug, setDebug] = useState<any>(null);
 
   useEffect(() => {
     const fetchScans = async () => {
-      if (!userId) {
+      if (!userEmail) {
         setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
-        const { scans, menuItems, error } = await supabaseService.getUserMenuScans(userId, limit);
+        const { scans, menuItems, error, debug } = await supabaseService.getUserMenuScans(userEmail, limit);
         
         if (error) {
           console.error("Error fetching scans:", error);
-          // Don't show the error to the user during implementation
-          setScans([]);
-          return;
+          setError(error);
+        } else {
+          setScans(scans || []);
+          setMenuItems(menuItems || {});
         }
         
-        if (scans) setScans(scans);
-        if (menuItems) setMenuItems(menuItems);
+        setDebug(debug);
       } catch (err) {
-        console.error("Error in scan history component:", err);
-        setScans([]);
+        console.error("Error:", err);
+        setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
         setLoading(false);
       }
     };
 
     fetchScans();
-  }, [userId, limit]);
+  }, [userEmail, limit]);
 
   if (loading) {
     return (
@@ -92,14 +94,6 @@ export function ScanHistory({ userId, limit = 5 }: ScanHistoryProps) {
           menuItems={scan.id ? menuItems[scan.id.toString()] : []} 
         />
       ))}
-      
-      {/* {scans.length > 0 && (
-        <Button variant="outline" size="sm" className="w-full" asChild>
-          <Link href="/dashboard/history">
-            View All Scan History
-          </Link>
-        </Button>
-      )} */}
     </div>
   );
 }

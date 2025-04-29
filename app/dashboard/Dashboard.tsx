@@ -27,6 +27,11 @@ interface MenuMetadata {
   cuisine_type?: string | null
 }
 
+interface AllergenCount {
+  allergen: string;
+  count: number;
+}
+
 // Add these styles at the top of the file, after imports
 const cardStyles = "bg-white/10 backdrop-blur-sm border-purple-300/30 shadow-lg shadow-purple-500/20";
 const cardHeaderStyles = "text-white";
@@ -57,6 +62,8 @@ export default function Dashboard() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [maxPrice, setMaxPrice] = useState<number | null>(null)
 
+  const [allergenCounts, setAllergenCounts] = useState<AllergenCount[]>([]);
+
   // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null)
@@ -75,6 +82,25 @@ export default function Dashboard() {
     }
   }
 
+  // Calculate allergen counts
+  const calculateAllergenCounts = (menuItems: MenuItem[]) => {
+    const allergenMap = new Map<string, number>();
+    
+    menuItems.forEach(item => {
+      if (item.allergens && Array.isArray(item.allergens)) {
+        item.allergens.forEach(allergen => {
+          const count = allergenMap.get(allergen) || 0;
+          allergenMap.set(allergen, count + 1);
+        });
+      }
+    });
+
+    // Convert to array and sort by count
+    return Array.from(allergenMap.entries())
+      .map(([allergen, count]) => ({ allergen, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
   // Process the menu response with enhanced data handling
   const processMenuResponse = (data: any) => {
     try {
@@ -88,6 +114,7 @@ export default function Dashboard() {
       if (data.menu_items && Array.isArray(data.menu_items)) {
         setMenuItems(data.menu_items);
         setShowResults(data.menu_items.length > 0);
+        setAllergenCounts(calculateAllergenCounts(data.menu_items));
       } else if (typeof data === "string") {
         // If data is a string, try to parse it as JSON
         try {
@@ -98,6 +125,7 @@ export default function Dashboard() {
           if (parsedData.menu_items && Array.isArray(parsedData.menu_items)) {
             setMenuItems(parsedData.menu_items);
             setShowResults(parsedData.menu_items.length > 0);
+            setAllergenCounts(calculateAllergenCounts(parsedData.menu_items));
           } else {
             throw new Error("No menu items found in parsed data");
           }
@@ -317,6 +345,30 @@ export default function Dashboard() {
           <p className="text-purple-200">Scan restaurant menus to identify allergens and ingredients</p>
         </div>
       </div>
+
+      {/* Add the Allergens Statistics Card here */}
+      {allergenCounts.length > 0 && (
+        <Card className={`${cardStyles} bg-gradient-to-r from-purple-800/70 to-indigo-800/70`}>
+          <CardHeader className={cardHeaderStyles}>
+            <CardTitle className={titleStyles}>Common Allergens</CardTitle>
+          </CardHeader>
+          <CardContent className={`${cardContentStyles} pt-0`}>
+            <div className="flex flex-wrap gap-2">
+              {allergenCounts.map(({ allergen, count }) => (
+                <div 
+                  key={allergen}
+                  className="flex items-center gap-1.5 bg-purple-900/50 text-purple-100 px-3 py-1.5 rounded-full border border-purple-400/30"
+                >
+                  <span className="font-medium">{allergen}</span>
+                  <span className="bg-purple-700/50 px-2 py-0.5 rounded-full text-sm">
+                    {count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <Card className="border-red-300 bg-red-900/30">

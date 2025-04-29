@@ -2,13 +2,15 @@
 
 import type React from "react"
 
-import { useState, useRef, FormEvent } from "react"
+import { useState, useRef, FormEvent, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Camera, Upload, Search, Grid3X3, List, Loader2, Info, AlertCircle, Trash2 } from "lucide-react"
 import Image from "next/image"
+import { createClient } from "@supabase/supabase-js"
+import supabaseService from "@/lib/supabase-service"
 
 // Define interfaces for menu data
 interface MenuItem {
@@ -25,6 +27,15 @@ interface MenuMetadata {
   restaurant_name?: string | null
   menu_type?: string | null
   cuisine_type?: string | null
+}
+
+export interface MenuData {
+  menu_items: MenuItem[];
+  raw_text: string;
+  restaurant_name?: string | null; 
+  menu_type?: string | null;
+  cuisine_type?: string | null;
+  scan_date?: string;
 }
 
 // Update the styles to be theme-responsive
@@ -50,6 +61,8 @@ export default function Scanner() {
   const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [scanResult, setScanResult] = useState<any>(null);
   
   // Filter options
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([])
@@ -136,9 +149,9 @@ export default function Scanner() {
       // Prepare form data
       const formData = new FormData()
       formData.append("file", file)
-
+      
       console.log("Sending request to API...")
-      // Send to API
+      // Send to API with auth headers
       const res = await fetch("/api/classify", {
         method: "POST",
         body: formData,
@@ -175,41 +188,38 @@ export default function Scanner() {
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    if (!file) return;
 
     setSubmitted(true);
     setIsLoading(true);
     setError(null);
-
+    
     try {
-      // Prepare and submit form
+      // Create form data
       const formData = new FormData();
-      formData.append("file", file as File);
-
+      formData.append("file", file);
+      
       console.log("Sending request to API...");
-
-      // Send to API
-      const res = await fetch("/api/classify", {
+      const response = await fetch("/api/classify", {
         method: "POST",
         body: formData,
       });
       
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`API error: ${res.status} ${res.statusText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
       
-      console.log("Response received, parsing JSON...");
-      const data = await res.json();
+      // Process response
+      const data = await response.json();
       console.log("API response data:", data);
       
-      if (!data.text) {
-        throw new Error("Invalid API response format");
+      if (data.text) {
+        setResponse(data.text);
       }
       
-      const content = data.text;
-      setResponse(content);
-      
-      // Process the response
+      // Process the menu response
       processMenuResponse(data);
       setShowResults(true);
     } catch (error) {
@@ -316,87 +326,108 @@ export default function Scanner() {
     );
   };
 
+  // Function to get menu summary for display
+  const getMenuSummary = () => {
+    if (menuMetadata.restaurant_name) {
+      return menuMetadata.restaurant_name;
+    } else if (menuItems.length > 0) {
+      return `Scanned menu with ${menuItems.length} items`;
+    } else {
+      return "Scanned menu";
+    }
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto">
       {!submitted ? (
-        <form onSubmit={onSubmit} className="space-y-8">
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(e);
+        }} className="space-y-8">
           <Card className={`${cardStyles} w-full`}>
             <CardHeader className={`${cardHeaderStyles} text-center`}>
               <CardTitle className={`${titleStyles} text-3xl`}>Scan a Menu</CardTitle>
+              <p className="text-gray-500 text-sm">
+                Upload or take a photo of a menu to extract and analyze its contents.
+                <span className="block mt-1 text-xs text-purple-600">Menu scans are automatically named based on their content.</span>
+              </p>
             </CardHeader>
             <CardContent className={`space-y-6 ${cardContentStyles} px-6 sm:px-10`}>
-              {!image ? (
-                <div className="flex flex-col items-center justify-center gap-6 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-12 text-center bg-gray-50 dark:bg-gray-800/50">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <Camera className="h-12 w-12 text-gray-400 dark:text-gray-500" />
-                    <h3 className="text-xl font-bold text-gray-700 dark:text-gray-200">Capture Menu Image</h3>
-                    <p className="text-base text-gray-500 dark:text-gray-400">
-                      Take a photo of a menu or upload an image to analyze it
-                    </p>
+              <div className="space-y-6">
+                {!image ? (
+                  <div className="flex flex-col items-center justify-center gap-6 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-12 text-center bg-gray-50 dark:bg-gray-800/50">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Camera className="h-12 w-12 text-gray-400 dark:text-gray-500" />
+                      <h3 className="text-xl font-bold text-gray-700 dark:text-gray-200">Capture Menu Image</h3>
+                      <p className="text-base text-gray-500 dark:text-gray-400">
+                        Take a photo of a menu or upload an image to analyze it
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Button
+                        type="button"
+                        onClick={handleCameraCapture}
+                        variant="outline"
+                        className={buttonOutlineStyles}
+                      >
+                        <Camera className="mr-2 h-4 w-4" />
+                        <span>Take Photo</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => fileInputRef.current?.click()}
+                        className={buttonOutlineStyles}
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
+                        <span>Upload Image</span>
+                      </Button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      type="button"
-                      onClick={handleCameraCapture}
-                      variant="outline"
-                      className={buttonOutlineStyles}
-                    >
-                      <Camera className="mr-2 h-4 w-4" />
-                      <span>Take Photo</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      className={buttonOutlineStyles}
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      <span>Upload Image</span>
-                    </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleFileChange}
-                    />
+                ) : (
+                  <div className="space-y-6">
+                    <div className="relative mx-auto aspect-[4/3] max-w-md overflow-hidden rounded-lg border border-gray-200">
+                      <Image
+                        src={image}
+                        alt="Menu preview"
+                        layout="fill"
+                        objectFit="cover"
+                      />
+                    </div>
+                    
+                    <div className="flex flex-col gap-4 sm:flex-row">
+                      <Button type="submit" className={`w-full ${buttonPrimaryStyles}`}>
+                        Analyze Menu
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleReset}
+                        className={`w-full ${buttonOutlineStyles} bg-red-500`}
+                        aria-label="Clear Image"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  <div className="relative mx-auto aspect-[4/3] max-w-md overflow-hidden rounded-lg border border-gray-200">
-                    <Image
-                      src={image}
-                      alt="Menu preview"
-                      layout="fill"
-                      objectFit="cover"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-4 sm:flex-row">
-                    <Button type="submit" className={`w-full ${buttonPrimaryStyles}`}>
-                      Analyze Menu
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleReset}
-                      className={`w-full ${buttonOutlineStyles} bg-red-500`}
-                      aria-label="Clear Image"
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </Button>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {error && (
-                <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-500 dark:text-red-400 border border-red-100 dark:border-red-800">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5 text-red-400 dark:text-red-500" />
-                    <p>{error}</p>
+                {error && (
+                  <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-500 dark:text-red-400 border border-red-100 dark:border-red-800">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5 text-red-400 dark:text-red-500" />
+                      <p>{error}</p>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
         </form>

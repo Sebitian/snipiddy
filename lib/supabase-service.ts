@@ -30,24 +30,21 @@ export interface MenuItem {
 export interface MenuScan {
   id?: string;
   raw_text: string;
-  restaurant_name?: string | null;
-  menu_type?: string | null;
-  cuisine_type?: string | null;
-  user_id?: string;
-  profile_id?: string;
   created_at?: string;
-  updated_at?: string;
+  user_id?: string;
+  name?: string;
+  item_count?: number;
 }
 
 export interface MenuData {
   menu_items: MenuItem[];
   raw_text: string;
-  restaurant_name?: string | null;
-  menu_type?: string | null;
+  restaurant_name?: string | null; // This is used for display but not stored in menu_scans
+  menu_type?: string | null; // This is used for display but not stored in menu_scans
   cuisine_type?: string | null;
-  user_id?: string | null;
-  profile_id?: string | null;
   scan_date?: string;
+  error?: string; // For error handling
+  id?: string; // For storing the returned ID
 }
 
 export interface SearchOptions {
@@ -78,11 +75,29 @@ interface AllergenReference {
   created_at?: string;
 }
 
+// Add this interface after the other interface definitions
+export interface AllergenAnalysis {
+  profile_id: string;
+  full_name: string;
+  allergen: string;
+  occurrence_count: number;
+}
+
 class SupabaseService {
+  // Add this helper function to safely prepare data for insertion
+  private prepareMenuScanData(data: Partial<MenuScan>): Record<string, any> {
+    // Only include fields that we know exist in the database schema
+    return {
+      raw_text: data.raw_text || "",
+      created_at: data.created_at || new Date().toISOString()
+    };
+  }
+
   // Store a complete menu scan with items
   async storeMenuData(
     data: MenuData,
-    userId?: string
+    userId: string,
+    useAutoNaming: boolean = false  // When true, triggers the auto-naming functionality in the database
   ): Promise<{ success: boolean; menuScanId?: string; error?: string }> {
     try {
       console.log("Storing menu data with items: ", data.menu_items.length);
@@ -90,31 +105,52 @@ class SupabaseService {
       if (!data.menu_items || data.menu_items.length === 0) {
         return { success: false, error: "No menu items to store" };
       }
-
-      // Create simplified menu scan data - only use what's in your schema
-      const menuScanData = {
-        raw_text: data.raw_text || "",
-        user_id: data.user_id || null,
-        profile_id: data.profile_id || null,
-        created_at: new Date().toISOString()
+      
+      // Create a safe object with only fields that exist in the database
+      const scanDate = new Date(data.scan_date || new Date().toISOString());
+      
+      // Create base menu scan data
+      const menuScanData: any = {
+        ...this.prepareMenuScanData({ raw_text: data.raw_text || "" }),
+        user_id: userId,
       };
-
-      console.log("Inserting menu scan with data:", menuScanData);
+      
+      // If useAutoNaming is true, don't set a name - trigger will handle it
+      // Otherwise use the standard date-based naming
+      if (!useAutoNaming) {
+        const formattedDate = scanDate.toLocaleDateString('en-US', { 
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric'
+        });
+        menuScanData.name = formattedDate;
+      }
 
       // Store the menu scan
       const { data: menuScan, error: menuError } = await supabase
         .from("menu_scans")
         .insert([menuScanData])
-        .select("id")
+        .select("id, name")
         .single();
 
       if (menuError) {
         console.error("Error storing menu scan:", menuError);
-        return { success: false, error: menuError.message };
+        // Attempt to provide more details about the error
+        if (menuError.code === '42501') {
+          return { success: false, error: "Permission denied - RLS policy might be blocking the insert" };
+        } else if (menuError.code === '23505') {
+          return { success: false, error: "Unique constraint violation" };
+        }
+        return { success: false, error: `${menuError.message} (Code: ${menuError.code})` };
       }
 
       const menuScanId = menuScan.id;
-      console.log("Menu scan created with ID:", menuScanId);
+      console.log("Menu scan created with ID:", menuScanId, "Name:", menuScan.name);
+      
+      // Log whether auto-naming was used
+      if (useAutoNaming) {
+        console.log("Auto-naming feature used, generated name:", menuScan.name);
+      }
 
       // Store menu items
       const menuItemsToInsert = data.menu_items.map((item) => ({
@@ -185,51 +221,110 @@ class SupabaseService {
     }
   }
 
-  // Get all scans for a specific restaurant
+  // Get all scans for a specific restaurant using raw SQL
   async getRestaurantMenus(
     restaurantName: string
-  ): Promise<{ scans?: MenuScan[]; error?: string }> {
+  ): Promise<{ scans?: MenuScan[]; error?: string; debug?: any }> {
     try {
-      const { data, error } = await supabase
-        .from("menu_scans")
-        .select("*")
-        .ilike("restaurant_name", `%${restaurantName}%`)
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        return { error: `Error fetching restaurant menus: ${error.message}` };
+      if (!restaurantName) {
+        return { error: "Restaurant name is required" };
       }
 
-      return { scans: data as MenuScan[] };
+      // Create a raw SQL query to search for restaurant menus
+      const query = `
+        SELECT 
+          id,
+          name,
+          raw_text,
+          created_at,
+          user_id
+        FROM menu_scans
+        WHERE raw_text ILIKE '%${restaurantName}%'
+        ORDER BY created_at DESC
+      `;
+
+      console.log("Executing SQL query for restaurant menus:", query);
+      
+      // Execute the raw SQL query
+      const { data, error } = await supabase.rpc('execute_sql', {
+        query: query
+      });
+
+      if (error) {
+        console.error("Error executing SQL for restaurant menus:", error);
+        return { 
+          error: `Error fetching restaurant menus: ${error.message}`,
+          debug: { query, error }
+        };
+      }
+
+      console.log(`Retrieved ${data?.length || 0} menus for restaurant: ${restaurantName}`);
+      
+      return { 
+        scans: data as MenuScan[],
+        debug: { query, result: data }
+      };
     } catch (error) {
       console.error("Error in getRestaurantMenus:", error);
       return {
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+        debug: { error }
       };
     }
   }
 
-  // Get menu items for a specific scan
+  // Get menu items for a specific scan using raw SQL
   async getMenuItems(
     scanId: string
-  ): Promise<{ items?: MenuItem[]; error?: string }> {
+  ): Promise<{ items?: MenuItem[]; error?: string; debug?: any }> {
     try {
-      const { data, error } = await supabase
-        .from("menu_items")
-        .select("*")
-        .eq("menu_scan_id", scanId);
-
-      if (error) {
-        return { error: `Error fetching menu items: ${error.message}` };
+      if (!scanId) {
+        return { error: "Scan ID is required" };
       }
 
-      return { items: data as MenuItem[] };
+      // Create a raw SQL query to get menu items for the specified scan
+      // Removing the category-based ordering since that column doesn't exist
+      const query = `
+        SELECT 
+          id,
+          menu_scan_id,
+          dish_name,
+          description,
+          ingredients,
+          allergens,
+          price,
+          created_at
+        FROM menu_items
+        WHERE menu_scan_id = '${scanId}'
+        ORDER BY dish_name
+      `;
+
+      console.log("Executing SQL query for menu items:", query);
+      
+      // Execute the raw SQL query
+      const { data, error } = await supabase.rpc('execute_sql', {
+        query: query
+      });
+
+      if (error) {
+        console.error("Error executing SQL for menu items:", error);
+        return { 
+          error: `Error fetching menu items: ${error.message}`,
+          debug: { query, error }
+        };
+      }
+
+      console.log(`Retrieved ${data?.length || 0} menu items for scan: ${scanId}`);
+      
+      return { 
+        items: data as MenuItem[],
+        debug: { query, result: data }
+      };
     } catch (error) {
       console.error("Error in getMenuItems:", error);
       return {
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+        debug: { error }
       };
     }
   }
@@ -244,9 +339,9 @@ class SupabaseService {
       let queryBuilder = supabase.from("menu_items").select(`
           *,
           menu_scans (
-            restaurant_name,
-            menu_type,
-            cuisine_type
+            id,
+            raw_text,
+            created_at
           )
         `);
 
@@ -297,21 +392,16 @@ class SupabaseService {
         queryBuilder = queryBuilder.in("category", options.categories);
       }
 
-      // Filter by restaurant name
+      // Filter by restaurant name (now uses raw_text search)
       if (options.restaurantName) {
-        queryBuilder = queryBuilder.eq(
-          "menu_scans.restaurant_name",
-          options.restaurantName
+        queryBuilder = queryBuilder.filter(
+          "menu_scans.raw_text",
+          "ilike",
+          `%${options.restaurantName}%`
         );
       }
 
-      // Filter by menu type
-      if (options.menuType) {
-        queryBuilder = queryBuilder.eq(
-          "menu_scans.menu_type",
-          options.menuType
-        );
-      }
+      // Menu type filter has been removed as it doesn't exist in the schema
 
       // Execute query
       const { data, error } = await queryBuilder;
@@ -325,9 +415,9 @@ class SupabaseService {
         const { menu_scans, ...menuItem } = item;
         return {
           ...menuItem,
-          restaurant_name: menu_scans?.restaurant_name,
-          menu_type: menu_scans?.menu_type,
-          cuisine_type: menu_scans?.cuisine_type,
+          // We no longer get these fields from menu_scans
+          // Just provide the scan_id to allow looking up the associated scan
+          scan_id: menu_scans?.id,
         };
       });
 
@@ -405,8 +495,6 @@ class SupabaseService {
     categories?: string[];
     dietaryTags?: string[];
     allergens?: string[];
-    restaurantNames?: string[];
-    menuTypes?: string[];
     error?: string;
   }> {
     try {
@@ -463,46 +551,10 @@ class SupabaseService {
         .filter(Boolean);
       const allergens = Array.from(new Set(allAllergens));
 
-      // Get restaurant names
-      const { data: restaurantsData, error: restaurantsError } = await supabase
-        .from("menu_scans")
-        .select("restaurant_name")
-        .not("restaurant_name", "is", null)
-        .order("restaurant_name");
-
-      if (restaurantsError) {
-        return {
-          error: `Error fetching restaurant names: ${restaurantsError.message}`,
-        };
-      }
-
-      const restaurantNames = Array.from(
-        new Set(restaurantsData.map((item: any) => item.restaurant_name))
-      );
-
-      // Get menu types
-      const { data: menuTypesData, error: menuTypesError } = await supabase
-        .from("menu_scans")
-        .select("menu_type")
-        .not("menu_type", "is", null)
-        .order("menu_type");
-
-      if (menuTypesError) {
-        return {
-          error: `Error fetching menu types: ${menuTypesError.message}`,
-        };
-      }
-
-      const menuTypes = Array.from(
-        new Set(menuTypesData.map((item: any) => item.menu_type))
-      );
-
       return {
         categories,
         dietaryTags,
         allergens,
-        restaurantNames,
-        menuTypes,
       };
     } catch (error) {
       console.error("Error in getFilterOptions:", error);
@@ -513,294 +565,247 @@ class SupabaseService {
     }
   }
 
-  // Delete a menu scan and all its items
-  async deleteMenuScan(
-    scanId: string
-  ): Promise<{ success: boolean; error?: string }> {
+ 
+  // Get the most recent scan using raw SQL
+  async getMostRecentScan(): Promise<{ data?: MenuScan; error?: string; debug?: any }> {
     try {
-      // Due to the cascade delete relationship, deleting the scan will also delete all items
-      const { error } = await supabase
-        .from("menu_scans")
-        .delete()
-        .eq("id", scanId);
+      // Create a raw SQL query to get the most recent scan
+      const query = `
+        SELECT *
+        FROM menu_scans
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+
+      console.log("Executing SQL query for most recent scan:", query);
+      
+      // Execute the raw SQL query
+      const { data, error } = await supabase.rpc('execute_sql', {
+        query: query
+      });
 
       if (error) {
-        return {
-          success: false,
-          error: `Error deleting menu scan: ${error.message}`,
+        console.error("Error executing SQL for most recent scan:", error);
+        return { 
+          error: error.message,
+          debug: { query, error }
         };
       }
 
-      return { success: true };
-    } catch (error) {
-      console.error("Error in deleteMenuScan:", error);
-      return {
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
-      };
-    }
-  }
-
-  // Store allergens from CSV data into allergen_references table
-  async storeAllergenReferences(
-    csvData: any[]
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const allergenReferences = csvData.map((item) => ({
-        food_product: item["Food Product"],
-        main_ingredient: item["Main Ingredient"],
-        sweetener: item["Sweetener"],
-        fat_oil: item["Fat/Oil"],
-        seasoning: item["Seasoning"],
-        allergens: item["Allergens"],
-        prediction: item["Prediction"],
-        created_at: new Date().toISOString(),
-      }));
-
-      const { error } = await supabase
-        .from("allergen_references")
-        .insert(allergenReferences);
-
-      if (error) {
-        console.error("Error storing allergen references:", error);
-        return { success: false, error: error.message };
+      // The execute_sql function returns an array, but we want a single object
+      // Check if we have results and take the first item
+      if (!data || data.length === 0) {
+        return { 
+          data: undefined,
+          debug: { query, result: [] }
+        };
       }
 
-      return { success: true };
-    } catch (error) {
-      console.error("Error in storeAllergenReferences:", error);
-      return {
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
+      // Return the first (and only) scan from the results
+      return { 
+        data: data[0] as MenuScan,
+        debug: { query, result: data }
       };
-    }
-  }
-
-  // GET ALL allergens from allergen references (or whichever table you use)
-  async getAllAllergens(): Promise<{
-    data?: AllergenReference[];
-    error?: string;
-  }> {
-    try {
-      const { data, error } = await supabase
-        .from("allergens")
-        .select("*")
-        .order("food", { ascending: true });
-
-      if (error) {
-        return { error: error.message };
-      }
-
-      return { data };
     } catch (error) {
-      return {
-        error: error instanceof Error ? error.message : "Unknown error ",
-      };
-    }
-  }
-
-  // Associate each ingredient in menu items of a scan with an allergen from the allergen_references
-  // async associateIngredientsWithAllergensForScan(
-  //   scanId: string
-  // ): Promise<{ success: boolean; error?: string }> {
-  //   try {
-  //     // Retrieve all allergen references from supabase
-  //     const { data: allergenReferences, error: allergenError } =
-  //       await this.getAllAllergens();
-
-  //     if (allergenError) {
-  //       return { success: false, error: allergenError };
-  //     }
-  //     if (!allergenReferences || allergenReferences.length === 0) {
-  //       return { success: false, error: "No allergen references found" };
-  //     }
-
-  //     // Retrieve all menu items for the given scan
-  //     const { items, error: menuItemsError } = await this.getMenuItems(scanId);
-  //     if (menuItemsError) {
-  //       return { success: false, error: menuItemsError };
-  //     }
-  //     if (!items || items.length === 0) {
-  //       return { success: false, error: "No menu items found for the scan" };
-  //     }
-
-  //     // Loop through each menu item to associate allergens based on exact ingredient matching
-  //     for (const menuItem of items) {
-  //       const matchedAllergens = new Set<string>();
-
-  //       if (menuItem.ingredients && Array.isArray(menuItem.ingredients)) {
-  //         for (const ingredient of menuItem.ingredients) {
-  //           const ingredientNormalized = ingredient.trim().toLowerCase();
-
-  //           // Check for exact matches in each allergen reference.
-  //           for (const ref of allergenReferences) {
-  //             // Exact match on food_product
-  //             if (
-  //               ref.food_product &&
-  //               ingredientNormalized === ref.food_product.trim().toLowerCase()
-  //             ) {
-  //               if (ref.allergens) {
-  //                 ref.allergens
-  //                   .split(",")
-  //                   .map(a => a.trim())
-  //                   .forEach(allergen => {
-  //                     if (allergen) matchedAllergens.add(allergen);
-  //                   });
-  //               }
-  //             }
-  //             // Exact match on main_ingredient (if desired)
-  //             if (
-  //               ref.main_ingredient &&
-  //               ingredientNormalized === ref.main_ingredient.trim().toLowerCase()
-  //             ) {
-  //               if (ref.allergens) {
-  //                 ref.allergens
-  //                   .split(",")
-  //                   .map(a => a.trim())
-  //                   .forEach(allergen => {
-  //                     if (allergen) matchedAllergens.add(allergen);
-  //                   });
-  //               }
-  //             }
-  //             // Additional exact matching for sweetener, fat_oil, seasoning, etc. can be added here
-  //           }
-  //         }
-  //       }
-
-  //       // Update the menu item with the collected allergens
-  //       const newAllergens = Array.from(matchedAllergens);
-  //       const { error: updateError } = await supabase
-  //         .from("menu_items")
-  //         .update({ allergens: newAllergens })
-  //         .eq("id", menuItem.id);
-
-  //       if (updateError) {
-  //         return { success: false, error: updateError.message };
-  //       }
-  //     }
-
-  //     return { success: true };
-  //   } catch (error) {
-  //     console.error("Error in associateIngredientsWithAllergensForScan:", error);
-  //     return {
-  //       success: false,
-  //       error: error instanceof Error ? error.message : "Unknown error occurred",
-  //     };
-  //   }
-  // }
-
-  // Get the most recent scan
-  async getMostRecentScan(): Promise<{ data?: MenuScan; error?: string }> {
-    try {
-      const { data, error } = await supabase
-        .from("menu_scans")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
-
-      if (error) throw error;
-      return { data };
-    } catch (error) {
+      console.error("Error in getMostRecentScan:", error);
       return {
         error: error instanceof Error ? error.message : "Unknown error",
+        debug: { error }
       };
     }
   }
 
   async getUserMenuScans(
-    userId: string,
+    userEmail: string, 
     limit = 5
-  ): Promise<{ scans?: MenuScan[]; menuItems?: Record<string, MenuItem[]>; error?: string }> {
+  ): Promise<{ scans?: MenuScan[]; menuItems?: Record<string, MenuItem[]>; error?: string; debug?: any }> {
     try {
-      // Get all scans regardless of user
-      const { data: scans, error: scansError } = await supabase
-        .from("menu_scans")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(limit);
+      // Create a raw SQL query to get user's scans
+      const scansQuery = `
+        SELECT *
+        FROM menu_scans
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
+
+      console.log("Executing SQL query for user menu scans:", scansQuery);
+      
+      // Execute the raw SQL query for scans
+      const { data: scans, error: scansError } = await supabase.rpc('execute_sql', {
+        query: scansQuery
+      });
 
       if (scansError) {
-        console.error("Error fetching menu scans:", scansError);
-        return { error: `Error fetching menu scans: ${scansError.message}` };
+        console.error("Error executing SQL for menu scans:", scansError);
+        return { 
+          error: `Error fetching menu scans: ${scansError.message}`,
+          debug: { query: scansQuery, error: scansError }
+        };
       }
 
       // If no scans, return empty results
       if (!scans || scans.length === 0) {
-        return { scans: [] };
+        return { 
+          scans: [],
+          debug: { query: scansQuery, result: scans }
+        };
       }
 
-      // Get menu items for each scan
-      const scanIds = scans.map(scan => scan.id);
-      const { data: items, error: itemsError } = await supabase
-        .from("menu_items")
-        .select("*")
-        .in("menu_scan_id", scanIds);
+      // Extract scan IDs for the items query
+      const scanIds = scans.map((scan: MenuScan) => `'${scan.id}'`).join(',');
+      
+      const itemsQuery = `
+        SELECT *
+        FROM menu_items
+        WHERE menu_scan_id IN (${scanIds})
+      `;
+
+      console.log("Executing SQL query for menu items:", itemsQuery);
+      
+      // Execute the raw SQL query for items
+      const { data: items, error: itemsError } = await supabase.rpc('execute_sql', {
+        query: itemsQuery
+      });
 
       if (itemsError) {
-        console.error("Error fetching menu items:", itemsError);
-        return { error: `Error fetching menu items: ${itemsError.message}` };
+        console.error("Error executing SQL for menu items:", itemsError);
+        return { 
+          error: `Error fetching menu items: ${itemsError.message}`,
+          scans: scans as MenuScan[],
+          debug: { 
+            scansQuery, 
+            scansResult: scans,
+            itemsQuery,
+            itemsError
+          }
+        };
       }
 
       // Group items by their scan ID
       const menuItems: Record<string, MenuItem[]> = {};
-      items?.forEach(item => {
-        if (!menuItems[item.menu_scan_id]) {
-          menuItems[item.menu_scan_id] = [];
+      items?.forEach((item: MenuItem) => {
+        const scanId = item.menu_scan_id;
+        if (scanId && !menuItems[scanId]) {
+          menuItems[scanId] = [];
         }
-        menuItems[item.menu_scan_id].push(item as MenuItem);
+        if (scanId) {
+          menuItems[scanId].push(item);
+        }
       });
 
       return {
         scans: scans as MenuScan[],
-        menuItems
+        menuItems,
+        debug: {
+          scansQuery,
+          scansResult: scans,
+          itemsQuery,
+          itemsResult: items
+        }
       };
     } catch (error) {
       console.error("Error in getUserMenuScans:", error);
       return {
         error: error instanceof Error ? error.message : "Unknown error occurred",
+        debug: { error }
       };
     }
   }
 
-  // Get user profile with allergen information
+  // Get user profile with allergen information using raw SQL
   async getUserProfile(
     userId: string
-  ): Promise<{ profile?: any; error?: string }> {
+  ): Promise<{ profile?: any; error?: string; debug?: any }> {
     try {
       // First check if userId is valid
       if (!userId) {
         return { profile: null, error: "User ID is required" };
       }
 
-      // Check if the user has a profile
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle(); // Use maybeSingle instead of single to handle no results case
+      // Create raw SQL query to get user profile
+      const query = `
+        SELECT *
+        FROM profiles
+        WHERE user_id = '${userId}'
+        LIMIT 1
+      `;
+
+      console.log("Executing SQL query for user profile:", query);
+      
+      // Execute the raw SQL query
+      const { data, error } = await supabase.rpc('execute_sql', {
+        query: query
+      });
 
       if (error) {
-        console.error("Error fetching user profile:", error);
-        return { error: `Error fetching user profile: ${error.message}` };
+        console.error("Error executing SQL for user profile:", error);
+        return { 
+          error: `Error fetching user profile: ${error.message}`,
+          debug: { query, error }
+        };
       }
 
       // If no profile found, return null instead of throwing an error
-      if (!data) {
-        return { profile: null };
+      if (!data || data.length === 0) {
+        return { 
+          profile: null,
+          debug: { query, result: data }
+        };
       }
 
-      return { profile: data };
+      // Since we're using LIMIT 1, take the first result
+      return { 
+        profile: data[0],
+        debug: { query, result: data }
+      };
     } catch (error) {
       console.error("Error in getUserProfile:", error);
       return {
         profile: null,
         error: error instanceof Error ? error.message : "Unknown error occurred",
+        debug: { error }
       };
     }
   }
+
+  // Get user's menu scans with item counts
+  async getUserScansWithItemCounts(userId: string): Promise<{ data?: any[]; error?: any; query?: string }> {
+    try {
+      if (!userId) {
+        return { error: "User ID is required" };
+      }
+
+      const query = `
+        SELECT 
+          ms.id,
+          ms.name,
+          ms.created_at,
+          ms.user_id,
+          ms.raw_text,
+          COUNT(mi.id) as item_count
+        FROM menu_scans ms
+        LEFT JOIN menu_items mi ON mi.menu_scan_id = ms.id
+        WHERE ms.user_id = '${userId}'
+        GROUP BY ms.id, ms.name, ms.created_at, ms.user_id, ms.raw_text
+        ORDER BY ms.created_at DESC
+      `;
+
+      console.log("Executing SQL query:", query);
+      
+      // Using the execute_sql function we created in Supabase
+      const { data, error } = await supabase.rpc('execute_sql', {
+        query: query
+      });
+
+      return { data, error, query };
+    } catch (error) {
+      console.error("Error in getUserScansWithItemCounts:", error);
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+
 }
 
 // At the bottom, change the exports to this:

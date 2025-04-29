@@ -1,6 +1,6 @@
 import { OpenAI } from "openai"
 import { supabaseService, MenuData, MenuItem } from "@/lib/supabase-service";
-
+import { createClient } from "@/utils/supabase/server";
 // Check if API key exists
 const apiKey = process.env.OPENAI_API_KEY
 if (!apiKey) {
@@ -235,23 +235,38 @@ export const classifyImage = async (file: File) => {
       }
     }
 
-    // // Store in Supabase
+    // Store in Supabase
     if (structuredData.menu_items.length > 0) {
       try {
-        // Create a copy without the cuisine_type field
-        const { cuisine_type, ...dataToStore } = structuredData;
-        // await supabaseService.storeMenuData(dataToStore);
-        const { success, menuScanId, error } = await supabaseService.storeMenuData(dataToStore);
-        console.log('Storage result:', { success, menuScanId, error }); // Add this line
-        // if (menuScanId) {
-        //   const associationResult = await supabaseService.associateIngredientsWithAllergensForScan(menuScanId);
-        //   console.log('Allergen association result:', associationResult); // Add this line
-        // }
-
+        // Remove fields not in the database schema
+        const { cuisine_type, menu_type, restaurant_name, ...dataToStore } = structuredData;
         
-      } catch (dbError) {
-        console.error("Database storage error:", dbError);
-        // Continue without failing the whole process
+        console.log("Final data being sent to storage:", { 
+          itemCount: structuredData.menu_items.length 
+        });
+        
+        // Store the data
+        const supabase = await createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error("No authenticated user found");
+        }
+        
+        // Set useAutoNaming to true to activate the auto-naming trigger
+        const result = await supabaseService.storeMenuData(structuredData, user.id, true);
+        console.log("Storage result:", result);
+        
+        if (!result.success) {
+          structuredData.error = result.error;
+        } else {
+          structuredData.id = result.menuScanId;
+        }
+      } catch (error) {
+        console.error("Error storing data:", error);
+        structuredData.error = error instanceof Error ? error.message : String(error);
       }
     }
 
@@ -261,7 +276,8 @@ export const classifyImage = async (file: File) => {
       menu_items: structuredData.menu_items,
       restaurant_name: structuredData.restaurant_name,
       menu_type: structuredData.menu_type,
-      cuisine_type: structuredData.cuisine_type
+      cuisine_type: structuredData.cuisine_type,
+      error: structuredData.error
     }
   } catch (error) {
     console.error("Error in classifyImage:", error)

@@ -127,15 +127,8 @@ export function UserProfile({ user }: UserProfileProps) {
         </div>
         
         <div className="mb-6">
-          <ScanHistory userId={user.id} limit={5} />
+          <ScanHistory userId={user.id} userEmail={user.email} limit={5} />
         </div>
-
-        {/* <Button variant="outline" className="w-full" asChild>
-          <Link href="/history">
-            <ClipboardListIcon className="mr-2 h-4 w-4" />
-            View All Scan History
-          </Link>
-        </Button> */}
       </Card>
     </div>
   );

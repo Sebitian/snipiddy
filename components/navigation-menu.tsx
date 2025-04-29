@@ -24,8 +24,8 @@ const navItems: NavItem[] = [
     icon: CameraIcon,
   },
   {
-    title: "History",
-    href: "/history",
+    title: "My Scans",
+    href: "/my-scans",
     icon: HistoryIcon,
   },
   {

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     // Read our file from request data
     const data = await request.formData();
     const file: File | null = data.get("file") as unknown as File;
-
+    
     if (!file) {
       return NextResponse.json(
         { error: "File not present in body" },
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call our classify function
+    // Call our classify function without user email
     const response = await classifyImage(file);
     console.log("Classification complete, returning response");
     
@@ -35,22 +35,6 @@ export async function POST(request: NextRequest) {
     if (!response || typeof response !== 'object') {
       throw new Error("Invalid response format from classifier");
     }
-
-    // If we have menu items, associate allergens (added this section)
-    // if (response.menu_items?.length > 0) {
-    //   try {
-    //     // Get the most recent scan ID (you might need to adjust this)
-    //     const { data: recentScan } = await supabaseService.getMostRecentScan();
-    //     if (recentScan?.id) {
-    //       await supabaseService.associateIngredientsWithAllergensForScan(recentScan.id);
-    //       console.log("Allergens associated successfully");
-    //     }
-    //   } catch (associationError) {
-    //     console.error("Allergen association failed:", associationError);
-    //     // Don't fail the whole request, just log the error
-    //   }
-    // }
-    
     // Return the full response object
     return NextResponse.json(response);
   } catch (error) {
