@@ -1,4 +1,5 @@
-# Team070-QueryQuesters
+# Snipiddy
 
-# To run the project, use npm run dev
+## Instructions
+To run the project, use npm run dev inside of the snipiddy directory.
 
